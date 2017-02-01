@@ -1,3 +1,9 @@
 a command line space-invaders-like game in clojure
 
+very incomplete
+
 run with "lein run"
+press escape to quit
+
+uses clojure-lanterna
+https://sjl.bitbucket.io/clojure-lanterna/
