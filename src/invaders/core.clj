@@ -11,6 +11,10 @@
 (def shots (atom []))
 (def weapon-cooldown-stamp (atom 0))
 
+(def targets (atom [{:s "o" :x 10 :y 5}
+                    {:s "o" :x 11 :y 5}
+                    {:s "o" :x 12 :y 5}]))
+
 (def frame (atom 0))
 
 (def old-stamp (atom 0))
@@ -37,23 +41,54 @@
 (defn status []
   (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]time:%d" @frame @X @Y @VX @VY @old-stamp))
 
+(defn log [& texts]
+  (spit "core.log" (str "\n" texts) :append true))
+
 (defn draw-ship [term]
   (let [new-x (handle-v VX X)
         new-y (handle-v VY Y)]
     (t/put-string term "⋰⋱" new-x new-y)))
 
+(defn collide [a b]
+  (= (select-keys a [:x :y])
+     (select-keys b [:x :y])))
+
+(defn collide-any [a bs]
+  (some #(collide a %) bs))
+
+(defn inbounds [obj]
+  (and (<= 0 (:y obj) 50)
+       (<= 0 (:x obj) 70)))
+
 (defn draw-shots [term]
   (doseq [n @shots]
-    (let [bullet "^"]
-      (t/put-string term bullet (:x n) (:y n))))
-  (reset! shots
-    (filter #(< 0 (:y %))
-      (map (fn [n] {:x (:x n) :y (dec (:y n))}) @shots))))
+    (let [bullet "^"
+          x (:x n)
+          y (:y n)]
+      (t/put-string term bullet x y)))
+  (let [foo @targets]
+    (reset! shots
+      (filter inbounds
+        (map #(update % :y dec)
+          (filter #(not (collide-any % foo))
+            @shots))))))
+
+(defn draw-target [term]
+  (reset! targets
+    (map
+      (fn [t]
+        (if (collide-any t @shots)
+          (assoc t :s "x")
+          t))
+      @targets))
+  (doseq [t @targets]
+    (t/put-string term (:s t) (:x t) (:y t))))
 
 (defn draw [term]
   (t/clear term)
   (draw-ship term)
   (draw-shots term)
+  (draw-target term)
   (t/set-fg-color term :white)
   (t/put-string term (status) 0 0)
   (t/move-cursor term 0 0))
@@ -74,9 +109,10 @@
 
 (defn fire-weapon []
   (let [new-stamp (System/currentTimeMillis)]
-    (when (< 800 (- new-stamp @weapon-cooldown-stamp))
+    ; (when (< 800 (- new-stamp @weapon-cooldown-stamp)))
+    (when (< 80 (- new-stamp @weapon-cooldown-stamp))
       (reset! weapon-cooldown-stamp (System/currentTimeMillis))
-      (swap! shots conj {:x @X :y @Y}))))
+      (swap! shots conj {:x (inc @X) :y (dec @Y)}))))
 
 (defn -main []
   (let [term (t/get-terminal :unix) ; :unix :text :swing :auto :cygwin
