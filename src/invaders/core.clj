@@ -10,16 +10,18 @@
 
 (def shoot (atom 0))
 
+(def frame (atom 0))
+
 (def old-stamp (atom 0))
 (def machine-on (atom true))
 
 (defn shutdown [term]
   (t/clear term)
   (t/put-string term "good bye")
-  (Thread/sleep 900)
+  ; (Thread/sleep 900)
   (reset! machine-on false))
 
-(defn handle-v [vd d]
+(defn handle-vx [vd d]
   (cond
     (pos? @vd)
     (do
@@ -31,10 +33,25 @@
      (reset! vd (min 0 (+ @vd 3)))))
   @d)
 
+(defn handle-vy [vd d]
+  (cond
+    (pos? @vd)
+    (do
+      (reset! d (min 75 (inc @d)))
+      (reset! vd (max 0 (- @vd 3))))
+    (neg? @vd)
+    (do
+     (reset! d (max 0 (dec @d)))
+     (reset! vd (min 0 (+ @vd 3)))))
+  @d)
+
+(defn status []
+  (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]time:%d" @frame @X @Y @VX @VY @old-stamp))
+
 (defn draw [term]
   (t/clear term)
-  (let [new-x (handle-v VX X)
-        new-y (handle-v VY Y)]
+  (let [new-x (handle-vx VX X)
+        new-y (handle-vy VY Y)]
     (t/put-string term "⋰⋱" new-x new-y)
     (when (< 0 @shoot)
       (let [bullet "^"]
@@ -46,16 +63,22 @@
           (t/put-string term bullet (inc new-x) y))
         (swap! shoot dec)))
     (t/set-fg-color term :white)
-    (t/move-cursor term 0 0)
-    (let [new-stamp (System/currentTimeMillis)
-          diff (- new-stamp @old-stamp)
-          pause (- 50 diff)]
-      (when (pos? pause)
-        (Thread/sleep pause))
-      (reset! old-stamp new-stamp))))
+    (t/put-string term (status) 0 0)
+    (t/move-cursor term 0 0)))
 
 (defn delta-v [d n]
   (reset! d (min 100 (max -100 (+ @d n)))))
+
+(defn tick-frame []
+  (let [new-stamp (System/currentTimeMillis)
+        diff (- new-stamp @old-stamp)
+        pause (- 50 diff)]
+    (swap! frame inc)
+    (when (= 12 @frame)
+      (reset! frame 0))
+    (when (pos? pause)
+      (Thread/sleep pause))
+    (reset! old-stamp (System/currentTimeMillis))))
 
 (defn -main []
   (let [term (t/get-terminal :unix) ; :unix :text :swing :auto :cygwin
@@ -70,29 +93,17 @@
       (let [key (t/get-key term)]
         (case key
           nil nil
-          ; :tab (t/clear term)
-          ; :left (reset! X (max 0 (dec @X)))
-          ; :right (reset! X (min max-w (inc @X)))
-          ; :up (reset! Y (max 0 (dec @Y)))
-          ; :down (reset! Y (min max-h (inc @Y)))
-          ; :left (reset! VX (max -100 (- @VX 10)))
-          ; :right (reset! VX (min 100 (+ @VX 10)))
-          ; :up (reset! VY (max -100 (- @VY 10)))
-          ; :down (reset! VY (min 100 (+ @VY 10)))
-          :up (delta-v VY -5)
-          \w (delta-v VY -5)
-          :left (delta-v VX -10)
-          \a (delta-v VX -10)
-          :down (delta-v VY 5)
-          \s (delta-v VY 5)
-          :right (delta-v VX 10)
-          \d (delta-v VX 10)
-          ; :enter (reset! Y (min max-w (inc @Y)))
+          :up (delta-v VY -10)
+          \w (delta-v VY -10)
+          :left (delta-v VX -16)
+          \a (delta-v VX -16)
+          :down (delta-v VY 10)
+          \s (delta-v VY 10)
+          :right (delta-v VX 16)
+          \d (delta-v VX 16)
           :escape (shutdown term)
           \space (reset! shoot 5)
           nil)
-          ; (do
-          ;   (t/put-string term (str key))
-          ;   (reset! X (min max-w (inc @X)))))
-        (draw term)))
+        (draw term)
+        (tick-frame)))
     (t/stop term)))
