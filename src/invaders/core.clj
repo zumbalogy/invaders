@@ -1,5 +1,6 @@
 (ns invaders.core
   (require [lanterna.terminal :as t]
+           [lanterna.screen :as s]
            [lanterna.constants :as c]))
 
 (def X (atom 0))
