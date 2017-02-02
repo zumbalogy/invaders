@@ -11,7 +11,10 @@
 (def shots (atom []))
 (def weapon-cooldown-stamp (atom 0))
 
-(def targets (atom (for [x (range 8 14) y (range 6 10 2)] {:s "o" :d "l" :live true :x x :y y})))
+(def enemy-shots (atom []))
+(def targets (atom (for [x (range 2 14 2) y (range 4 10 2)] {:s "o" :d "l" :live true :x x :y y})))
+; (def targets (atom (for [x (range 2 14) y (range 8 10 2)] {:s "o" :d "l" :live true :x x :y y})))
+; (def targets (atom [{:s "o" :d "l" :live true :x 10 :y 10}]))
 
 (def frame (atom 0))
 
@@ -29,23 +32,33 @@
     (pos? @vd)
     (do
       (reset! d (min 75 (inc @d)))
-      (reset! vd (max 0 (- @vd 3))))
+      ; (reset! vd (max 0 (- @vd 3)))
+      (reset! vd 0))
     (neg? @vd)
     (do
      (reset! d (max  0 (dec @d)))
-     (reset! vd (min 0 (+ @vd 3)))))
+    ;  (reset! vd (min 0 (+ @vd 3)))
+     (reset! vd 0)))
   @d)
 
 (defn status []
-  (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]time:%d" @frame @X @Y @VX @VY @old-stamp))
+  (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]" @frame @X @Y @VX @VY))
 
 (defn log [& texts]
-  (spit "core.log" (str "\n" texts) :append true))
+  (spit "core.log" (str "\n" texts) :append true)
+  (first texts))
+
+(defn loose [term]
+  (s/clear term)
+  (s/put-string term 0 0 "You loose!")
+  (s/redraw term)
+  (Thread/sleep 1000)
+  (reset! machine-on false))
 
 (defn draw-ship [term]
   (let [new-x (handle-v VX X)
         new-y (handle-v VY Y)]
-    (s/put-string term new-x new-y "-^-")))
+    (s/put-string term new-x new-y "^")))
 
 (defn collide [a b]
   (let [x1 (:x a) y1 (:y a)
@@ -64,13 +77,27 @@
     (let [bullet ":"
           x (:x n)
           y (:y n)]
-      (s/put-string term x y bullet {:fg :white})))
-  (let [t @targets]
-    (reset! shots
-      (filter inbounds
-        (map #(assoc % :live (and (:live %) (not (collide-any % t)))) ; refactor this stuff
-          (map #(assoc % :y (dec (:y %))) ; the order of these maps is important and fragile
-            @shots))))))
+      (s/put-string term x y bullet {:fg :green})))
+  (let [t @targets
+        e @enemy-shots]
+    (->> @shots
+      (map #(assoc % :y (dec (:y %))))
+      (filter inbounds)
+      (reset! shots))))
+
+(defn draw-enemy-shots [term]
+  (doseq [n @enemy-shots]
+    (let [bullet "*"
+          x (:x n)
+          y (:y n)]
+      (s/put-string term x y bullet {:fg :red})
+      (when (and (= y @Y) (> 1 (Math/abs (- x @X))))
+        (loose term))))
+  (let [s @shots]
+    (->> @enemy-shots
+      (map #(assoc % :y (inc (:y %))))
+      (filter inbounds)
+      (reset! enemy-shots))))
 
 (defn move-target [t]
   (let [x (:x t)
@@ -79,14 +106,19 @@
         new-x (if (= "l" d) (inc x) (dec x))
         new-d (cond (< x 2) "l" (< 70 x) "r" :else d)
         new-y (if (= d new-d) y (inc y))
-        new-a (and (:live t) (not (collide-any t @shots)))]
-    (assoc t :x new-x :y new-y :d new-d :live new-a)))
-    ; (assoc t :x x :y y :d new-d :live new-a)))
+        new-l (and (:live t) (not (collide-any t @shots)))]
+    (assoc t :x new-x :y new-y :d new-d :live new-l)))
+    ; (assoc t :x x :y y :d new-d :live new-l)))
+    ; (assoc t :x x :y y :d new-d)))
 
 (defn draw-target [term]
   (reset! targets (map move-target @targets))
   (doseq [t @targets]
-    (s/put-string term (:x t) (:y t) (:s t))))
+    (let [x (:x t)
+          y (:y t)]
+      (s/put-string term x y (:s t))
+      (when (< 0.99 (rand))
+        (swap! enemy-shots conj {:live true :x x :y (inc y)})))))
 
 (defn check-win [term]
   (when (empty? @targets)
@@ -96,20 +128,18 @@
     (Thread/sleep 1000)
     (reset! machine-on false))
   (when (< 30 (apply max (conj (map :y @targets) 0)))
-    (s/clear term)
-    (s/put-string term 0 0 "You loose!")
-    (s/redraw term)
-    (Thread/sleep 1000)
-    (reset! machine-on false)))
+    (loose term)))
 
 (defn clean-debris [term]
   (reset! targets (filter :live @targets))
-  (reset! shots (filter :live @shots)))
+  (reset! shots (filter :live @shots))
+  (reset! enemy-shots (filter :live @enemy-shots)))
 
 (defn draw [term]
   (s/clear term)
   (draw-ship term)
   (draw-shots term)
+  (draw-enemy-shots term)
   (draw-target term)
   (clean-debris term)
   (check-win term)
@@ -122,7 +152,7 @@
 (defn tick-frame []
   (let [new-stamp (System/currentTimeMillis)
         diff (- new-stamp @old-stamp)
-        pause (- 50 diff)]
+        pause (- 60 diff)]
     (swap! frame inc)
     (when (= 12 @frame)
       (reset! frame 0))
@@ -134,7 +164,7 @@
   (let [new-stamp (System/currentTimeMillis)]
     (when (< 80 (- new-stamp @weapon-cooldown-stamp))
       (reset! weapon-cooldown-stamp (System/currentTimeMillis))
-      (swap! shots conj {:live true :x (inc @X) :y (dec @Y)}))))
+      (swap! shots conj {:live true :x @X :y (dec @Y)}))))
 
 (defn -main []
   (let [term (s/get-screen :unix) ; :unix :text :swing :auto :cygwin
