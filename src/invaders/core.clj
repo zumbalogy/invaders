@@ -22,8 +22,8 @@
 (def machine-on (atom true))
 
 (defn shutdown [term]
-  (t/clear term)
-  (t/put-string term "good bye")
+  (s/clear term)
+  (s/put-string term 0 0 "good bye")
   ; (Thread/sleep 900)
   (reset! machine-on false))
 
@@ -48,7 +48,7 @@
 (defn draw-ship [term]
   (let [new-x (handle-v VX X)
         new-y (handle-v VY Y)]
-    (t/put-string term "⋰⋱" new-x new-y)))
+    (s/put-string term new-x new-y "-^-")))
 
 (defn collide [a b]
   (= (select-keys a [:x :y])
@@ -63,10 +63,10 @@
 
 (defn draw-shots [term]
   (doseq [n @shots]
-    (let [bullet "^"
+    (let [bullet ":"
           x (:x n)
           y (:y n)]
-      (t/put-string term bullet x y)))
+      (s/put-string term x y bullet {:fg :green})))
   (let [foo @targets]
     (reset! shots
       (filter inbounds
@@ -83,16 +83,15 @@
           t))
       @targets))
   (doseq [t @targets]
-    (t/put-string term (:s t) (:x t) (:y t))))
+    (s/put-string term (:x t) (:y t) (:s t))))
 
 (defn draw [term]
-  (t/clear term)
+  (s/clear term)
   (draw-ship term)
   (draw-shots term)
   (draw-target term)
-  (t/set-fg-color term :white)
-  (t/put-string term (status) 0 0)
-  (t/move-cursor term 0 0))
+  (s/put-string term 0 0 (status))
+  (s/redraw term))
 
 (defn delta-v [d n]
   (reset! d (min 100 (max -100 (+ @d n)))))
@@ -110,22 +109,20 @@
 
 (defn fire-weapon []
   (let [new-stamp (System/currentTimeMillis)]
-    ; (when (< 800 (- new-stamp @weapon-cooldown-stamp)))
     (when (< 80 (- new-stamp @weapon-cooldown-stamp))
       (reset! weapon-cooldown-stamp (System/currentTimeMillis))
       (swap! shots conj {:x (inc @X) :y (dec @Y)}))))
 
 (defn -main []
-  (let [term (t/get-terminal :unix) ; :unix :text :swing :auto :cygwin
+  (let [term (s/get-screen :unix) ; :unix :text :swing :auto :cygwin
+        size (s/get-size term)
         max-w (- 80 5)
         max-h 40]
-    (t/start term)
-    (t/clear term)
-    (t/put-string term "press escape to exit.")
-    (t/put-string term "type away ")
-    (t/move-cursor term 0 0)
+    (s/start term)
+    (s/clear term)
+    (s/move-cursor term 0 0)
     (while @machine-on
-      (let [key (t/get-key term)]
+      (let [key (s/get-key term)]
         (case key
           nil nil
           :up (delta-v VY -10)
@@ -141,4 +138,4 @@
           nil)
         (draw term)
         (tick-frame)))
-    (t/stop term)))
+    (s/stop term)))
