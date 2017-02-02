@@ -1,10 +1,9 @@
 (ns invaders.core
-  (require [lanterna.terminal :as t]
-           [lanterna.screen :as s]
+  (require [lanterna.screen :as s]
            [lanterna.constants :as c]))
 
-(def X (atom 0))
-(def Y (atom 0))
+(def X (atom 24))
+(def Y (atom 24))
 
 (def VX (atom 0))
 (def VY (atom 0))
@@ -12,9 +11,7 @@
 (def shots (atom []))
 (def weapon-cooldown-stamp (atom 0))
 
-(def targets (atom [{:s "o" :x 10 :y 5}
-                    {:s "o" :x 11 :y 5}
-                    {:s "o" :x 12 :y 5}]))
+(def targets (atom (for [x (range 8 14) y (range 6 10 2)] {:s "o" :d "l" :live true :x x :y y})))
 
 (def frame (atom 0))
 
@@ -35,7 +32,7 @@
       (reset! vd (max 0 (- @vd 3))))
     (neg? @vd)
     (do
-     (reset! d (max 0 (dec @d)))
+     (reset! d (max  0 (dec @d)))
      (reset! vd (min 0 (+ @vd 3)))))
   @d)
 
@@ -51,8 +48,9 @@
     (s/put-string term new-x new-y "-^-")))
 
 (defn collide [a b]
-  (= (select-keys a [:x :y])
-     (select-keys b [:x :y])))
+  (let [x1 (:x a) y1 (:y a)
+        x2 (:x b) y2 (:y b)]
+    (and (= x1 x2) (= y1 y2))))
 
 (defn collide-any [a bs]
   (some #(collide a %) bs))
@@ -66,30 +64,55 @@
     (let [bullet ":"
           x (:x n)
           y (:y n)]
-      (s/put-string term x y bullet {:fg :green})))
-  (let [foo @targets]
+      (s/put-string term x y bullet {:fg :white})))
+  (let [t @targets]
     (reset! shots
       (filter inbounds
-        (map #(update % :y dec)
-          (filter #(not (collide-any % foo))
+        (map #(assoc % :live (and (:live %) (not (collide-any % t)))) ; refactor this stuff
+          (map #(assoc % :y (dec (:y %))) ; the order of these maps is important and fragile
             @shots))))))
 
+(defn move-target [t]
+  (let [x (:x t)
+        d (:d t)
+        y (:y t)
+        new-x (if (= "l" d) (inc x) (dec x))
+        new-d (cond (< x 2) "l" (< 70 x) "r" :else d)
+        new-y (if (= d new-d) y (inc y))
+        new-a (and (:live t) (not (collide-any t @shots)))]
+    (assoc t :x new-x :y new-y :d new-d :live new-a)))
+    ; (assoc t :x x :y y :d new-d :live new-a)))
+
 (defn draw-target [term]
-  (reset! targets
-    (map
-      (fn [t]
-        (if (collide-any t @shots)
-          (assoc t :s "x")
-          t))
-      @targets))
+  (reset! targets (map move-target @targets))
   (doseq [t @targets]
     (s/put-string term (:x t) (:y t) (:s t))))
+
+(defn check-win [term]
+  (when (empty? @targets)
+    (s/clear term)
+    (s/put-string term 0 0 "You win!")
+    (s/redraw term)
+    (Thread/sleep 1000)
+    (reset! machine-on false))
+  (when (< 30 (apply max (conj (map :y @targets) 0)))
+    (s/clear term)
+    (s/put-string term 0 0 "You loose!")
+    (s/redraw term)
+    (Thread/sleep 1000)
+    (reset! machine-on false)))
+
+(defn clean-debris [term]
+  (reset! targets (filter :live @targets))
+  (reset! shots (filter :live @shots)))
 
 (defn draw [term]
   (s/clear term)
   (draw-ship term)
   (draw-shots term)
   (draw-target term)
+  (clean-debris term)
+  (check-win term)
   (s/put-string term 0 0 (status))
   (s/redraw term))
 
@@ -111,7 +134,7 @@
   (let [new-stamp (System/currentTimeMillis)]
     (when (< 80 (- new-stamp @weapon-cooldown-stamp))
       (reset! weapon-cooldown-stamp (System/currentTimeMillis))
-      (swap! shots conj {:x (inc @X) :y (dec @Y)}))))
+      (swap! shots conj {:live true :x (inc @X) :y (dec @Y)}))))
 
 (defn -main []
   (let [term (s/get-screen :unix) ; :unix :text :swing :auto :cygwin
@@ -119,7 +142,6 @@
         max-w (- 80 5)
         max-h 40]
     (s/start term)
-    (s/clear term)
     (s/move-cursor term 0 0)
     (while @machine-on
       (let [key (s/get-key term)]
