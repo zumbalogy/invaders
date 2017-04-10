@@ -1,6 +1,7 @@
 (ns invaders.core
   (require [lanterna.screen :as s]
-           [lanterna.constants :as c]))
+           [lanterna.constants :as c]
+           [invaders.keys :as keys]))
 
 (def X (atom 24))
 (def Y (atom 24))
@@ -12,8 +13,8 @@
 (def weapon-cooldown-stamp (atom 0))
 
 (def enemy-shots (atom []))
-(def targets (atom (for [x (range 2 14 2) y (range 4 10 2)] {:s "o" :d "l" :live true :x x :y y})))
-; (def targets (atom (for [x (range 2 14) y (range 8 10 2)] {:s "o" :d "l" :live true :x x :y y})))
+; (def targets (atom (for [x (range 2 14 2) y (range 4 10 2)] {:s "o" :d "l" :live true :x x :y y})))
+(def targets (atom (for [x (range 2 14) y (range 8 10 2)] {:s "o" :d "l" :live true :x x :y y})))
 ; (def targets (atom [{:s "o" :d "l" :live true :x 10 :y 10}]))
 
 (def frame (atom 0))
@@ -173,7 +174,12 @@
         max-h 40]
     (s/start term)
     (s/move-cursor term 0 0)
+    (future (doseq [ln (line-seq (java.io.BufferedReader. *in*))]
+      (println (reverse ln))))
     (while @machine-on
+      ; (Thread/sleep 100)
+      ; (println "this is the core")
+      ; (println @keys/keyboard)
       (let [key (s/get-key term)]
         (case key
           nil nil
