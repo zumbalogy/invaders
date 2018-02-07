@@ -10,10 +10,7 @@
 
 ; (while true (do (Thread/sleep 1000) (println "hello")))))
 
-(def stream (line-seq (java.io.BufferedReader. *in*)))
-
-
-
+;; (def stream (line-seq (java.io.BufferedReader. *in*)))
 
 ; (future
 ;   (while true

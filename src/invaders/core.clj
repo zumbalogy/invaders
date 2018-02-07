@@ -3,47 +3,59 @@
            [lanterna.constants :as c]
            [invaders.keys :as keys]))
 
-(def X (atom 24))
-(def Y (atom 24))
+(def game-state
+  (atom {:x 24
+         :y 24
+         :d 0
+         :vx 0
+         :vy 0
+         :shots []
+         :enemy-shots []
+         :weapon-cooldown-stamp 0
+         :targets (for [x (range 2 14) y (range 8 10 2)] {:s "o" :d "l" :live true :x x :y y})
+         ;; :targets (for [x (range 2 14 2) y (range 4 10 2)] {:s "o" :d "l" :live true :x x :y y})
+         :frame 0
+         :old-stamp 0
+         :machine-on true}))
 
-(def VX (atom 0))
-(def VY (atom 0))
+(defn change-state [prop func & args]
+  (let [old-prop (get @game-state prop)
+        all-args (remove nil? (concat [old-prop] args))
+        new-state (apply func all-args)]
+    (swap! game-state assoc prop new-state)))
 
-(def shots (atom []))
-(def weapon-cooldown-stamp (atom 0))
+; make this take n pairs
+(defn set-state [prop state]
+  (swap! game-state assoc prop state))
 
-(def enemy-shots (atom []))
-; (def targets (atom (for [x (range 2 14 2) y (range 4 10 2)] {:s "o" :d "l" :live true :x x :y y})))
-(def targets (atom (for [x (range 2 14) y (range 8 10 2)] {:s "o" :d "l" :live true :x x :y y})))
-; (def targets (atom [{:s "o" :d "l" :live true :x 10 :y 10}]))
+(defn get-state [prop]
+  (get @game-state prop))
 
-(def frame (atom 0))
-
-(def old-stamp (atom 0))
-(def machine-on (atom true))
+(defn get-ms []
+  (System/currentTimeMillis))
 
 (defn shutdown [term]
   (s/clear term)
   (s/put-string term 0 0 "good bye")
   ; (Thread/sleep 900)
-  (reset! machine-on false))
+  (set-state :machine-on false))
 
 (defn handle-v [vd d]
   (cond
-    (pos? @vd)
-    (do
-      (reset! d (min 75 (inc @d)))
-      ; (reset! vd (max 0 (- @vd 3)))
-      (reset! vd 0))
-    (neg? @vd)
-    (do
-     (reset! d (max  0 (dec @d)))
-    ;  (reset! vd (min 0 (+ @vd 3)))
-     (reset! vd 0)))
-  @d)
+    (pos? vd)
+    [(min 75 (inc d)) 0]
+    (neg? vd)
+    [(max 0 (dec d)) 0]
+    :else
+    [0 0]))
 
 (defn status []
-  (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]" @frame @X @Y @VX @VY))
+  (format "frame:%2d xy:[%2d %2d]Vxy:[%3d %3d]"
+          (get-state :frame)
+          (get-state :x)
+          (get-state :y)
+          (get-state :vx)
+          (get-state :vy)))
 
 (defn log [& texts]
   (spit "core.log" (str "\n" texts) :append true)
@@ -54,17 +66,22 @@
   (s/put-string term 0 0 "You loose!")
   (s/redraw term)
   (Thread/sleep 1000)
-  (reset! machine-on false))
+  (set-state :machine-on false))
 
 (defn draw-ship [term]
-  (let [new-x (handle-v VX X)
-        new-y (handle-v VY Y)]
-    (s/put-string term new-x new-y "^")))
+  (let [[vx x] (handle-v (get-state :vx) (get-state :x))
+        [vy y] (handle-v (get-state :vy) (get-state :y))]
+    (set-state :vx vx)
+    (set-state :vy vy)
+    (set-state :x x)
+    (set-state :y y)
+    (s/put-string term x y "^")))
 
 (defn collide [a b]
   (let [x1 (:x a) y1 (:y a)
         x2 (:x b) y2 (:y b)]
-    (and (= x1 x2) (= y1 y2))))
+    (and (= x1 x2)
+         (= y1 y2))))
 
 (defn collide-any [a bs]
   (some #(collide a %) bs))
@@ -74,31 +91,31 @@
        (<= 0 (:x obj) 70)))
 
 (defn draw-shots [term]
-  (doseq [n @shots]
+  (doseq [n (get-state :shots)]
     (let [bullet ":"
           x (:x n)
           y (:y n)]
       (s/put-string term x y bullet {:fg :green})))
-  (let [t @targets
-        e @enemy-shots]
-    (->> @shots
+  (let [t (get-state :targets)
+        e (get-state :enemy-shots)]
+    (->> (get-state :shots)
       (map #(assoc % :y (dec (:y %))))
       (filter inbounds)
-      (reset! shots))))
+      (set-state :shots))))
 
 (defn draw-enemy-shots [term]
-  (doseq [n @enemy-shots]
+  (doseq [n (get-state :enemy-shots)]
     (let [bullet "*"
           x (:x n)
           y (:y n)]
       (s/put-string term x y bullet {:fg :red})
-      (when (and (= y @Y) (> 1 (Math/abs (- x @X))))
+      (when (and (= y (get-state :y)) (> 1 (Math/abs (- x (get-state :x)))))
         (loose term))))
-  (let [s @shots]
-    (->> @enemy-shots
+  (let [s (get-state :shots)]
+    (->> (get-state :enemy-shots)
       (map #(assoc % :y (inc (:y %))))
       (filter inbounds)
-      (reset! enemy-shots))))
+      (set-state :enemy-shots))))
 
 (defn move-target [t]
   (let [x (:x t)
@@ -107,34 +124,34 @@
         new-x (if (= "l" d) (inc x) (dec x))
         new-d (cond (< x 2) "l" (< 70 x) "r" :else d)
         new-y (if (= d new-d) y (inc y))
-        new-l (and (:live t) (not (collide-any t @shots)))]
+        new-l (and (:live t) (not (collide-any t (get-state :shots))))]
     (assoc t :x new-x :y new-y :d new-d :live new-l)))
     ; (assoc t :x x :y y :d new-d :live new-l)))
     ; (assoc t :x x :y y :d new-d)))
 
 (defn draw-target [term]
-  (reset! targets (map move-target @targets))
-  (doseq [t @targets]
+  (set-state :targets (map move-target (get-state :targets)))
+  (doseq [t (get-state :targets)]
     (let [x (:x t)
           y (:y t)]
       (s/put-string term x y (:s t))
       (when (< 0.99 (rand))
-        (swap! enemy-shots conj {:live true :x x :y (inc y)})))))
+        (change-state :enemy-shots conj {:live true :x x :y (inc y)})))))
 
 (defn check-win [term]
-  (when (empty? @targets)
+  (when (empty? (get-state :targets))
     (s/clear term)
     (s/put-string term 0 0 "You win!")
     (s/redraw term)
     (Thread/sleep 1000)
-    (reset! machine-on false))
-  (when (< 30 (apply max (conj (map :y @targets) 0)))
+    (set-state :machine-on false))
+  (when (< 30 (apply max (conj (map :y (get-state :targets)) 0)))
     (loose term)))
 
 (defn clean-debris [term]
-  (reset! targets (filter :live @targets))
-  (reset! shots (filter :live @shots))
-  (reset! enemy-shots (filter :live @enemy-shots)))
+  (set-state :targets (filter :live (get-state :targets)))
+  (set-state :shots (filter :live (get-state :shots)))
+  (set-state :enemy-shots (filter :live (get-state :enemy-shots))))
 
 (defn draw [term]
   (s/clear term)
@@ -148,24 +165,26 @@
   (s/redraw term))
 
 (defn delta-v [d n]
-  (reset! d (min 100 (max -100 (+ @d n)))))
+  (set-state :d (min 100 (max -100 (+ (get-state :d) n)))))
 
 (defn tick-frame []
-  (let [new-stamp (System/currentTimeMillis)
-        diff (- new-stamp @old-stamp)
+  (let [new-stamp (get-ms)
+        diff (- new-stamp (get-state :old-stamp))
         pause (- 60 diff)]
-    (swap! frame inc)
-    (when (= 12 @frame)
-      (reset! frame 0))
+    (change-state :frame inc)
+    (when (= 12 (get-state :frame))
+      (set-state :frame 0))
     (when (pos? pause)
       (Thread/sleep pause))
-    (reset! old-stamp (System/currentTimeMillis))))
+    (set-state :old-stamp (get-ms))))
 
 (defn fire-weapon []
-  (let [new-stamp (System/currentTimeMillis)]
-    (when (< 80 (- new-stamp @weapon-cooldown-stamp))
-      (reset! weapon-cooldown-stamp (System/currentTimeMillis))
-      (swap! shots conj {:live true :x @X :y (dec @Y)}))))
+  (let [new-stamp (get-ms)]
+    (when (< 80 (- new-stamp (get-state :weapon-cooldown-stamp)))
+      (set-state :weapon-cooldown-stamp (get-ms))
+      (change-state :shots conj {:live true
+                                 :x (get-state :x)
+                                 :y (dec (get-state :y))}))))
 
 (defn -main []
   (let [term (s/get-screen :unix) ; :unix :text :swing :auto :cygwin
@@ -174,23 +193,25 @@
         max-h 40]
     (s/start term)
     (s/move-cursor term 0 0)
-    (future (doseq [ln (line-seq (java.io.BufferedReader. *in*))]
-      (println (reverse ln))))
-    (while @machine-on
+    ;; (future (doseq [ln (line-seq (java.io.BufferedReader. *in*))]
+      ;; (println (reverse ln))))
+    (while (get-state :machine-on)
       ; (Thread/sleep 100)
       ; (println "this is the core")
       ; (println @keys/keyboard)
-      (let [key (s/get-key term)]
+      (let [key (s/get-key term)
+            vx (get-state :vx)
+            vy (get-state :vy)]
         (case key
           nil nil
-          :up (delta-v VY -10)
-          \w (delta-v VY -10)
-          :left (delta-v VX -16)
-          \a (delta-v VX -16)
-          :down (delta-v VY 10)
-          \s (delta-v VY 10)
-          :right (delta-v VX 16)
-          \d (delta-v VX 16)
+          :up (delta-v vy -10)
+          \w (delta-v vy -10)
+          :left (delta-v vx -16)
+          \a (delta-v vx -16)
+          :down (delta-v vy 10)
+          \s (delta-v vy 10)
+          :right (delta-v vx 16)
+          \d (delta-v vx 16)
           :escape (shutdown term)
           \space (fire-weapon)
           nil)
